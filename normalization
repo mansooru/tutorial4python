@@ -1,0 +1,44 @@
+There are different ways of "normalizing data". Depending which one you have in mind, it may or may not be easy to implement in your case.
+
+1. Fixed normalization
+If you know the fixed range(s) of your values (e.g. feature #1 has values in [-5, 5], feature #2 has values in [0, 100], etc.), you could easily pre-process your feature tensor in parse_example(), e.g.:
+
+def normalize_fixed(x, current_range, normed_range):
+    current_min, current_max = tf.expand_dims(current_range[:, 0], 1), tf.expand_dims(current_range[:, 1], 1)
+    normed_min, normed_max = tf.expand_dims(normed_range[:, 0], 1), tf.expand_dims(normed_range[:, 1], 1)
+    x_normed = (x - current_min) / (current_max - current_min)
+    x_normed = x_normed * (normed_max - normed_min) + normed_min
+    return x_normed
+
+def parse_example(line_batch, 
+                  fixed_range=[[-5, 5], [0, 100], ...],
+                  normed_range=[[0, 1]]):
+    # ...
+    features = tf.transpose(features)
+    features = normalize_fixed(features, fixed_range, normed_range)
+    # ...
+2. Per-sample normalization
+If your features are supposed to have approximately the same range of values, per-sample normalization could also be considered, i.e. applying normalization considering the features moments (mean, variance) for each sample:
+
+def normalize_with_moments(x, axes=[0, 1], epsilon=1e-8):
+    mean, variance = tf.nn.moments(x, axes=axes)
+    x_normed = (x - mean) / tf.sqrt(variance + epsilon) # epsilon to avoid dividing by zero
+    return x_normed
+
+def parse_example(line_batch):
+    # ...
+    features = tf.transpose(features)
+    features = normalize_with_moments(features)
+    # ...
+3. Batch normalization
+You could apply the same procedure over a complete batch instead of per-sample, which may make the process more stable:
+
+data_batch = normalize_with_moments(data_batch, axis=[1, 2])
+Similarly, you could use tf.nn.batch_normalization
+
+4. Dataset normalization
+Normalizing using the mean/variance computed over the whole dataset would be the trickiest, since as you mentioned it is a large, split one.
+
+tf.data.Dataset isn't really meant for such global computation. A solution would be to use whatever tools you have to pre-compute the dataset moments, then use this information for your TF pre-processing.
+
+As mentioned by @MiniQuark, Tensorflow has a Transform library you could use to preprocess your data. Have a look at the Get Started, or for instance at the tft.scale_to_z_score() method for sample normalization.
